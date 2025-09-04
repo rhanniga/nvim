@@ -44,7 +44,6 @@ return {
       },
       spec = {
         mode = { 'n', 'v', 'x' },
-        { '<leader>a', group = '[a]i' },
         { '<leader>c', group = '[c]ode' },
         { '<leader>f', group = '[f]ind' },
         { '<leader>g', group = '[g]it' },
