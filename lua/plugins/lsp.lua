@@ -48,7 +48,7 @@ return {
 
     local servers = {
       clangd = {},
-      -- basedpyright = {},
+      basedpyright = {},
       rust_analyzer = {
         settings = {
           cargo = {
@@ -92,7 +92,7 @@ return {
     vim.list_extend(ensure_installed, {
       'stylua', -- Used to format Lua code
     })
-    require('mason-tool-installer').setup { ensure_installed = ensure_installed }
+    require('mason-tool-installer').setup { lazy = false, ensure_installed = ensure_installed }
 
     -- Mason is just being used to easily communicate LSP server capabilities to the native neovim client
     require('mason-lspconfig').setup {
