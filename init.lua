@@ -222,10 +222,6 @@ later(function()
 		end
 	end, "LuaSnip jsregexp build")
 
-	on_packchanged("blink.cmp", { "install", "update" }, function()
-		require("blink.cmp").build():wait(60000)
-	end, "blink.cmp native build")
-
 	add({
 		"https://github.com/L3MON4D3/LuaSnip",
 		"https://github.com/rafamadriz/friendly-snippets",
@@ -234,6 +230,10 @@ later(function()
 	})
 
 	require("luasnip.loaders.from_vscode").lazy_load()
+
+	on_packchanged("blink.cmp", { "install", "update" }, function()
+	    require("blink.cmp").build():wait(60000)
+	end, "blink.cmp native build")
 
 	require("blink.cmp").setup({
 		keymap = { preset = "default" },
@@ -458,6 +458,8 @@ later(function()
 			changedelete = { text = "~" },
 		},
 	})
+	k("n", "]g", function() require("gitsigns").nav_hunk('next') end, "smart find")
+	k("n", "[g", function() require("gitsigns").nav_hunk('prev') end, "smart find")
 end)
 
 -- WHICH-KEY
