@@ -1,3 +1,4 @@
+
 -- VSCODE GUARD
 if vim.g.vscode then
 	vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
@@ -63,6 +64,34 @@ local k = function(modes, keys, fn, desc, opts)
 	opts.desc = desc
 	vim.keymap.set(modes, keys, fn, opts)
 end
+
+-- EXTERNAL DEPENDENCY CHECK
+now(function()
+	local deps = {
+		{ "git", "git", "required by vim.pack + mason" },
+		{ "rg", "ripgrep", "brew install ripgrep — snacks grep/pickers" },
+		{ "cc", "C compiler", "xcode-select --install — compiles treesitter parsers" },
+		{ "tree-sitter", "tree-sitter CLI", "cargo install tree-sitter-cli (or brew install tree-sitter)" },
+		{ "rustup", "rust toolchain", "https://rustup.rs — rust_analyzer, blink fuzzy, leptosfmt" },
+		{ "node", "node/npm", "brew install node — ts_ls, basedpyright, prettier" },
+		{ "go", "go toolchain", "brew install go — gopls" },
+	}
+	local missing = {}
+	for _, d in ipairs(deps) do
+		if vim.fn.executable(d[1]) == 0 then
+			table.insert(missing, ("  • %s (%s)\n      %s"):format(d[2], d[1], d[3]))
+		end
+	end
+	if #missing > 0 then
+		vim.schedule(function()
+			vim.notify(
+				"Missing external dependencies:\n" .. table.concat(missing, "\n"),
+				vim.log.levels.WARN,
+				{ title = "init.lua bootstrap" }
+			)
+		end)
+	end
+end)
 
 -- OPTIONS
 vim.g.mapleader = " "
@@ -231,10 +260,6 @@ later(function()
 
 	require("luasnip.loaders.from_vscode").lazy_load()
 
-	on_packchanged("blink.cmp", { "install", "update" }, function()
-	    require("blink.cmp").build():wait(60000)
-	end, "blink.cmp native build")
-
 	require("blink.cmp").setup({
 		keymap = { preset = "default" },
 		appearance = { nerd_font_variant = "mono" },
@@ -313,6 +338,7 @@ later(function()
 	end)
 end)
 
+
 -- LSP
 later(function()
 	vim.diagnostic.config({
@@ -331,90 +357,79 @@ later(function()
 			source = "if_many",
 			spacing = 2,
 			format = function(diagnostic)
-				local diagnostic_message = {
-					[vim.diagnostic.severity.ERROR] = diagnostic.message,
-					[vim.diagnostic.severity.WARN] = diagnostic.message,
-					[vim.diagnostic.severity.INFO] = diagnostic.message,
-					[vim.diagnostic.severity.HINT] = diagnostic.message,
-				}
-				return diagnostic_message[diagnostic.severity]
+				return diagnostic.message
 			end,
 		},
 	})
 
 	add({ "https://github.com/mason-org/mason.nvim" })
-	require("mason").setup()
 	add({ "https://github.com/mason-org/mason-lspconfig.nvim" })
 	add({ "https://github.com/WhoIsSethDaniel/mason-tool-installer.nvim" })
-	add({ "https://github.com/neovim/nvim-lspconfig" })
+	add({ "https://github.com/neovim/nvim-lspconfig" }) -- ships the default lsp/*.lua configs
 	add({ "https://github.com/j-hui/fidget.nvim" })
+
+	require("mason").setup()
 	require("fidget").setup({})
 
+	-- capabilities from blink, applied to every server via the "*" config
 	local capabilities = vim.lsp.protocol.make_client_capabilities()
 	local ok_blink, blink = pcall(require, "blink.cmp")
 	if ok_blink then
 		capabilities = blink.get_lsp_capabilities(capabilities)
 	end
+	vim.lsp.config("*", { capabilities = capabilities })
 
 	local servers = {
 		clangd = {},
 		gopls = {},
 		basedpyright = {},
+		lua_ls = {
+			settings = {
+				Lua = { completion = { callSnippet = "Replace" } },
+			},
+		},
 		rust_analyzer = {
 			settings = {
-				cargo = {
-					allFeatures = true,
-				},
+				cargo = { allFeatures = true },
 				procMacro = {
-					ignored = {
-						leptos_macro = {
-							"server",
-						},
-					},
+					ignored = { leptos_macro = { "server" } },
 				},
 				rustfmt = {
 					overrideCommand = { "leptosfmt", "--stdin", "--rustfmt" },
 				},
 			},
 		},
+		-- ts_ls: attach only in Node projects, skip in Deno projects / single files
 		ts_ls = {
-			root_dir = require("lspconfig").util.root_pattern({ "package.json", "tsconfig.json" }),
-			single_file_support = false,
-			settings = {},
+			root_dir = function(bufnr, on_dir)
+				local fname = vim.api.nvim_buf_get_name(bufnr)
+				if vim.fs.root(fname, { "deno.json", "deno.jsonc" }) then
+					return
+				end
+				local root = vim.fs.root(fname, { "tsconfig.json", "package.json" })
+				if root then
+					on_dir(root)
+				end
+			end,
 		},
+		-- denols: attach only in Deno projects
 		denols = {
-			root_dir = require("lspconfig").util.root_pattern({ "deno.json", "deno.jsonc" }),
-			single_file_support = false,
-			settings = {},
-		},
-		lua_ls = {
-			settings = {
-				Lua = {
-					completion = {
-						callSnippet = "Replace",
-					},
-				},
-			},
+			root_markers = { "deno.json", "deno.jsonc" },
 		},
 	}
 
-	local ensure_installed = vim.tbl_keys(servers or {})
-	local extra_tools = { "stylua" }
-	local tool_list = {}
-	vim.list_extend(tool_list, ensure_installed)
-	vim.list_extend(tool_list, extra_tools)
-	require("mason-tool-installer").setup({ ensure_installed = tool_list })
+	-- register per-server overrides (merged on top of nvim-lspconfig's shipped defaults + "*")
+	for name, cfg in pairs(servers) do
+		vim.lsp.config(name, cfg)
+	end
 
+	-- non-LSP tools that conform.nvim uses (formatters/linters)
+	require("mason-tool-installer").setup({ ensure_installed = { "stylua" } })
+
+	-- install the servers, then auto-enable them (automatic_enable defaults to true; explicit for clarity)
 	require("mason-lspconfig").setup({
-		ensure_installed = {},
-		automatic_installation = false,
-		handlers = {
-			function(server_name)
-				local server = servers[server_name] or {}
-				server.capabilities = vim.tbl_deep_extend("force", {}, capabilities, server.capabilities or {})
-				require("lspconfig")[server_name].setup(server)
-			end,
-		},
+		ensure_installed = vim.tbl_keys(servers),
+		automatic_enable = true,
 	})
 end)
 
